@@ -1,0 +1,6 @@
+type,name,id,n_nodes,n_connectors,n_branches,n_leafs,cable_length,soma,units,created_at,origin,file
+navis.TreeNeuron,DA1_lPN_R,1734350788,4465,2705,599,618,266476.88,4177.0,8 nanometer,2026-09-15 14:03:48.164321,C:\Users\Siddhesh\AppData\Local\Programs\Python\Python310\lib\site-packages\navis\data\swc\1734350788.swc,1734350788.swc
+navis.TreeNeuron,DA1_lPN_R,1734350908,4847,3042,735,761,304332.66,6.0,8 nanometer,2026-09-15 14:03:48.176640,C:\Users\Siddhesh\AppData\Local\Programs\Python\Python310\lib\site-packages\navis\data\swc\1734350908.swc,1734350908.swc
+navis.TreeNeuron,DA1_lPN_R,722817260,4332,3136,633,656,274703.38,,8 nanometer,2026-09-15 14:03:48.186894,C:\Users\Siddhesh\AppData\Local\Programs\Python\Python310\lib\site-packages\navis\data\swc\722817260.swc,722817260.swc
+navis.TreeNeuron,DA1_lPN_R,754534424,4696,3010,696,726,286522.47,4.0,8 nanometer,2026-09-15 14:03:48.199636,C:\Users\Siddhesh\AppData\Local\Programs\Python\Python310\lib\site-packages\navis\data\swc\754534424.swc,754534424.swc
+navis.TreeNeuron,DA1_lPN_R,754538881,4881,2943,626,642,291265.3,701.0,8 nanometer,2026-09-15 14:03:48.221968,C:\Users\Siddhesh\AppData\Local\Programs\Python\Python310\lib\site-packages\navis\data\swc\754538881.swc,754538881.swc

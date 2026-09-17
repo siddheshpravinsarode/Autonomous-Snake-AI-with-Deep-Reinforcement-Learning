@@ -1,0 +1,5 @@
+{
+  "server": "neuprint.janelia.org",
+  "dataset": "hemibrain:v1.2.1",
+  "token": "YOUR_NEUPRINT_AUTH_TOKEN_HERE"
+}

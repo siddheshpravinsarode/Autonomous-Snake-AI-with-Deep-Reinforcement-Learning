@@ -1,0 +1,18 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments & IDEs
+.vscode/
+.idea/
+venv/
+env/
+.env
+
+# OS artifacts
+Thumbs.db
+.DS_Store
+
+# Keep trained model checkpoints in models/
+!models/dqn_snake.pth
