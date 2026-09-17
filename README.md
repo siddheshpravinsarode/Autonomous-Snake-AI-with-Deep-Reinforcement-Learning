@@ -1,180 +1,502 @@
-# Autonomous Snake AI with Deep Reinforcement Learning (Double DQN)
+# Autonomous Snake AI with Deep Reinforcement Learning
 
-An autonomous Snake agent trained from scratch using **Double Deep Q-Networks (Double DQN)** in PyTorch and Pygame.
+A Snake game that learns to play by itself using **Double Deep Q-Learning (Double DQN)** with PyTorch and Pygame.
 
----
+The agent starts with no knowledge of how to play and learns by interacting with the game, receiving rewards for useful actions and penalties for bad ones.
 
-## ⚡ Quick Start (Play Immediately)
+## Quick Start 0
 
-Anyone cloning this repository can run the pre-trained AI in two commands:
+Install the dependencies:
 
 ```bash
-# 1. Install dependencies
 pip install -r requirements.txt
+```
 
-# 2. Launch the AI Snake game (loads pre-trained models/dqn_snake.pth automatically)
+Then start the game:
+
+```bash
 python main.py
+```
+
+The game automatically loads the trained model from:
+
+```text
+models/dqn_snake.pth
 ```
 
 ---
 
-## Why We Switched to Deep Reinforcement Learning
+## Why Deep Reinforcement Learning?
 
-In earlier iterations of this project, we experimented with a biologically-inspired fruit fly connectome using Hebbian dopamine plasticity. While fascinating in theory, simple Hebbian synaptic updates fail at games like Snake because:
-- They only reinforce immediate co-active firing (no long-term planning).
-- They have no concept of future discounted rewards (Bellman equation).
-- The snake would continually trap itself, run into walls, or spin in circles.
+I originally experimented with a biologically-inspired approach using a **fruit fly connectome and Hebbian dopamine plasticity**.
 
-We replaced the heuristic approach with **Double Deep Q-Learning (Double DQN)** coupled with an **ego-centric (head-relative) state representation**. Within just **150 headless training episodes (~2 minutes)**, the agent learned collision avoidance, path finding, and achieved scores of **44+ fruits**.
+It was an interesting idea, but it didn't work well for Snake. The main issue was that the approach mostly reinforced things happening at the current moment. It didn't have a good way to learn that an action can be bad several moves later.
+
+The snake would often:
+
+* Run into walls
+* Trap itself
+* Move in circles
+* Wander without reaching the food
+
+I switched to **Double DQN** to give the agent a way to estimate the future value of its actions.
+
+I also changed the state representation to an **ego-centric representation**. Instead of giving the network only absolute coordinates, the snake gets information relative to its own direction, such as whether food is ahead or to the left and whether there is danger nearby.
+
+With the current setup, the agent was able to reach **44+ fruits in a run after around 150 headless training episodes**.
 
 ---
 
 ## Project Structure
 
-We modularized the previous monolithic script into clean, dedicated components:
-
-```
+```text
 flyslave/
+│
 ├── models/
-│   └── dqn_snake.pth       # Trained PyTorch model weights
+│   └── dqn_snake.pth
+│
 ├── src/
-│   ├── constants.py        # Window dimensions, colors, grid sizes, directions
-│   ├── game.py             # Snake physics, grid state, collisions, reward shaping
-│   ├── hud.py              # Real-time HUD (Q-value bars, telemetry, radar badges)
-│   ├── renderer.py         # Pygame arena drawing, glowing food, particle effects
-│   ├── rl_agent.py         # PyTorch DQN neural net, ReplayBuffer, Q-learning updates
-│   └── sensors.py          # Ego-centric hazard detection & proximity state encoder
-├── main.py                 # Interactive GUI game loop with real-time controls
-├── train_headless.py       # Super-fast headless training script (300+ steps/sec)
-├── fly_snake_game.py       # Wrapper entrypoint calling main.py
-└── README.md               # Documentation
+│   ├── constants.py
+│   ├── game.py
+│   ├── hud.py
+│   ├── renderer.py
+│   ├── rl_agent.py
+│   └── sensors.py
+│
+├── main.py
+├── train_headless.py
+├── fly_snake_game.py
+└── README.md
 ```
 
----
+### `src/constants.py`
 
-## Function-by-Function Breakdown of the RL System
+Contains the game constants such as window size, grid size, colors, and movement directions.
 
-Here is an exact walkthrough of how every Reinforcement Learning function works under the hood:
+### `src/game.py`
 
-### 1. Neural Network & Experience Replay ([`src/rl_agent.py`](src/rl_agent.py))
+Contains the actual Snake game logic:
 
-#### `QNetwork`
-- **What it is**: A standard multi-layer perceptron (MLP) built with PyTorch `nn.Module`.
-- **Architecture**: `16 inputs` $\to$ `Linear(16, 128)` $\to$ `ReLU()` $\to$ `Linear(128, 128)` $\to$ `ReLU()` $\to$ `Linear(128, 3 actions)`.
-- **What it outputs**: Three continuous Q-values: $Q(s, \text{Turn Left})$, $Q(s, \text{Straight})$, $Q(s, \text{Turn Right})$. The action with the highest Q-value is chosen as the best move.
+* Snake movement
+* Food spawning
+* Collision detection
+* Rewards
+* Episode termination
 
-#### `ReplayBuffer.push(state, action, reward, next_state, done)`
-- **What it does**: Saves every step the snake takes into a circular queue (`deque` with a capacity of 50,000 transitions).
-- **Why it matters**: If an RL model only trains on consecutive frames, the data is heavily correlated (the snake just moved 1 pixel), leading to overfitting or catastrophic forgetting. Replay memory stores experiences so the network can sample them randomly later.
+### `src/sensors.py`
 
-#### `ReplayBuffer.sample(batch_size=64)`
-- **What it does**: Pulls 64 random transitions from memory and converts them into PyTorch FloatTensors on CPU or GPU.
-- **Why it matters**: Breaks temporal correlation and provides independently distributed data for gradient descent.
+Converts the game state into the 16 values that are given to the neural network.
 
-#### `DQNAgent.__init__(...)`
-- **What it sets up**:
-  - `self.policy_net`: The active network that makes decisions and gets updated on every step.
-  - `self.target_net`: A cloned copy used exclusively to calculate target values for Bellman updates.
-  - `self.optimizer`: Adam optimizer with learning rate $\alpha = 10^{-3}$.
-  - `self.loss_fn`: Huber Smooth-L1 Loss (less sensitive to outliers than MSE).
-  - Exploration rate ($\epsilon = 1.0 \to 0.02$ decay).
+### `src/rl_agent.py`
 
-#### `DQNAgent.select_action(state, evaluate=False)`
-- **What it does**: Implements the **$\epsilon$-greedy exploration strategy**:
-  - With probability $\epsilon$, pick a random action (explores new paths).
-  - With probability $1 - \epsilon$, pass the state through `policy_net` and pick `argmax(Q)` (exploits learned knowledge).
-  - When `evaluate=True` (during normal gameplay viewing), randomness is turned off to execute strictly optimal moves.
+Contains the reinforcement learning code:
 
-#### `DQNAgent.train_step(batch_size=64)`
-- **What it does**: This is the heart of the learning algorithm:
-  1. Samples 64 random transitions `(s, a, r, s', done)` from replay memory.
-  2. Computes the predicted Q-value for the action that was taken: $Q_{policy}(s, a)$.
-  3. Uses **Double DQN** logic to determine the target value:
-     $$a^* = \arg\max_{a'} Q_{policy}(s', a')$$
-     $$y = r + (1 - done) \cdot \gamma \cdot Q_{target}(s', a^*)$$
-  4. Calculates Smooth-L1 Loss between prediction and target.
-  5. Performs `loss.backward()`, clips gradients to `max_norm=5.0` (to avoid exploding gradients), and calls `optimizer.step()`.
-  6. Decays $\epsilon$ by $0.995$ and syncs the target network every 150 steps.
+* DQN network
+* Replay buffer
+* Epsilon-greedy action selection
+* Double DQN training
+* Target network
+* Model saving and loading
 
-#### `DQNAgent.update_target_network()`
-- **What it does**: Copies `policy_net.state_dict()` into `target_net`.
-- **Why it matters**: If you update the target values with the same network you are training, the targets constantly move, causing unstable oscillations. Freezing the target network and updating it periodically keeps training rock solid.
+### `src/renderer.py`
 
-#### `DQNAgent.save(filepath)` & `load(filepath)`
-- **What it does**: Saves/loads model weights, optimizer state, exploration epsilon, and total step count to `.pth` files.
+Handles the Pygame rendering of the Snake game.
+
+### `src/hud.py`
+
+Displays information about the agent while it is playing, including Q-values and other telemetry.
+
+### `train_headless.py`
+
+Runs the environment without rendering the Pygame window so that training can run faster.
+
+### `main.py`
+
+Starts the interactive version of the game.
 
 ---
 
-### 2. Sensory State Perception ([`src/sensors.py`](src/sensors.py))
+# How the RL Agent Works
 
-#### `extract_rl_state(game)`
-- **What it does**: Transforms the full 28x28 grid into a compact **16-dimensional ego-centric observation vector**:
-  - `[0..2] Danger (Straight, Left, Right)`: Look-ahead radar that checks if moving into the adjacent cell hits a wall or body segment.
-  - `[3..6] Direction (Up, Right, Down, Left)`: One-hot vector of current heading.
-  - `[7..10] Food Direction (Ahead, Left, Right, Behind)`: Projection of the food vector onto the snake's forward and lateral axes.
-  - `[11..13] Food Proximity`: Inverse-distance values at the head, left sensor offset, and right sensor offset.
-  - `[14] Progress Trend`: Flag indicating whether the previous step moved closer to food.
-  - `[15] Normalized Distance`: Straight-line Euclidean distance to food divided by arena diagonal.
+## Neural Network
 
-#### Why Ego-Centric State?
-If we gave the network absolute coordinates $(x_{head}, y_{head}, x_{food}, y_{food})$, the agent would have to re-learn how to turn towards food separately for every quadrant of the board. With **ego-centric coordinates**, "food is to my left" means the exact same thing whether the snake is heading North, East, South, or West. This **rotation invariance** reduces training time from days to minutes.
+The agent uses a small fully connected neural network:
+
+```text
+16 inputs
+    |
+    v
+Linear(16, 128)
+    |
+   ReLU
+    |
+    v
+Linear(128, 128)
+    |
+   ReLU
+    |
+    v
+Linear(128, 3)
+```
+
+The three outputs correspond to the three actions available to the snake:
+
+```text
+0 -> Turn Left
+1 -> Go Straight
+2 -> Turn Right
+```
+
+The network produces a Q-value for each action.
+
+For example:
+
+```text
+Left      = 2.1
+Straight  = 5.7
+Right     = 3.4
+```
+
+The agent would choose **Straight** because it has the highest Q-value.
 
 ---
 
-### 3. Environment & Reward Shaping ([`src/game.py`](src/game.py))
+## Experience Replay
 
-#### `SnakeGame.step(action)`
-- **Actions**:
-  - `0`: Turn Left (-90°)
-  - `1`: Go Straight (0°)
-  - `2`: Turn Right (+90°)
-- **Reward System**:
-  - **$+10.0$**: Eating food (primary objective).
-  - **$-10.0$**: Colliding with wall or self (death).
-  - **$+0.15$ to $+0.30$**: Moving closer to food / climbing the scent plume (encourages direct navigation).
-  - **$-0.20$**: Moving away from food (discourages wandering).
-  - **$-8.0$**: Starvation penalty if steps without food exceed $(120 + 10 \times \text{length})$ (prevents infinite harmless loops).
+Every step of the game produces a transition:
+
+```text
+(state, action, reward, next_state, done)
+```
+
+These transitions are stored in a replay buffer with a capacity of **50,000 experiences**.
+
+Instead of training only on the most recent move, the agent randomly samples a batch of experiences from the buffer.
+
+The current training batch size is:
+
+```text
+64
+```
+
+This helps reduce the correlation between consecutive game states and gives the network a wider variety of situations to learn from.
 
 ---
 
-## Running the Application
+## Epsilon-Greedy Exploration
 
-### 1. Interactive Visual GUI
-Watch the agent play live with real-time HUD telemetry:
+At the beginning of training, the agent doesn't know which actions are good, so it needs to explore.
+
+The agent uses epsilon-greedy action selection:
+
+```text
+With probability epsilon:
+    choose a random action
+
+Otherwise:
+    choose the action with the highest Q-value
+```
+
+The exploration value starts at:
+
+```text
+epsilon = 1.0
+```
+
+and gradually decreases toward:
+
+```text
+epsilon = 0.02
+```
+
+This means the early training episodes contain a lot of random movement, while later episodes rely more on the behavior learned by the network.
+
+---
+
+# Double DQN
+
+The main learning logic is inside:
+
+```text
+DQNAgent.train_step()
+```
+
+For each sampled transition, the policy network calculates:
+
+```text
+Q_policy(s, a)
+```
+
+For the next state, Double DQN uses the policy network to choose the next action:
+
+```text
+a* = argmax Q_policy(s', a)
+```
+
+The target network then evaluates that action:
+
+```text
+y = r + (1 - done) * gamma * Q_target(s', a*)
+```
+
+If the episode has ended, there is no future reward:
+
+```text
+y = r
+```
+
+The predicted Q-value is compared with the target using **Smooth L1 / Huber Loss**.
+
+The network is then updated using backpropagation and the Adam optimizer.
+
+Gradients are clipped to a maximum norm of `5.0` to prevent very large updates.
+
+The target network is synchronized with the policy network every **150 training steps**.
+
+---
+
+# Policy Network and Target Network
+
+The agent keeps two copies of the neural network.
+
+```text
+Policy Network
+     |
+     | makes decisions
+     | gets updated during training
+     v
+  Actions
+
+
+Target Network
+     |
+     | calculates training targets
+     | updated periodically
+     v
+  Stable targets
+```
+
+The reason for having a separate target network is to make the training targets more stable.
+
+If the same network were used to both generate and update the target values on every step, the values could keep moving while the network is trying to learn them.
+
+---
+
+# State Representation
+
+The Snake board is a **28 x 28 grid**, but the neural network does not receive the whole grid.
+
+Instead, the game converts the current situation into a **16-dimensional state vector**.
+
+The values contain information about:
+
+### 1. Danger
+
+The snake checks the cells in three directions:
+
+```text
+Straight
+Left
+Right
+```
+
+These sensors detect whether the next move would hit a wall or the snake's body.
+
+### 2. Current Direction
+
+The current heading is represented using four values:
+
+```text
+Up
+Right
+Down
+Left
+```
+
+### 3. Food Direction
+
+The food is represented relative to the snake:
+
+```text
+Ahead
+Left
+Right
+Behind
+```
+
+### 4. Food Proximity
+
+The state contains additional proximity values for the food around the snake.
+
+### 5. Progress
+
+The agent keeps track of whether its previous movement brought it closer to the food.
+
+### 6. Distance
+
+The normalized Euclidean distance between the snake and the food is also included.
+
+---
+
+# Why Use an Ego-Centric State?
+
+One option would be to give the network absolute coordinates:
+
+```text
+Snake = (5, 12)
+Food  = (20, 12)
+```
+
+The problem with this representation is that the same situation can have completely different coordinates depending on where the snake is on the board.
+
+Instead, the agent gets information relative to its current direction:
+
+```text
+Food is ahead
+Danger is on the left
+```
+
+So if the snake rotates, the representation changes with it.
+
+For example, these two situations might have completely different absolute coordinates:
+
+```text
+Snake facing Up
+Food is on the Left
+```
+
+and:
+
+```text
+Snake facing Right
+Food is on the Left
+```
+
+But from the agent's perspective, both simply mean:
+
+```text
+Food -> Left
+```
+
+This gives the network a more consistent representation of the problem.
+
+---
+
+# Reward System
+
+The environment gives the agent rewards and penalties based on what happens.
+
+| Event                 |             Reward |
+| --------------------- | -----------------: |
+| Eating food           |            `+10.0` |
+| Collision             |            `-10.0` |
+| Moving closer to food | `+0.15` to `+0.30` |
+| Moving away from food |            `-0.20` |
+| Starvation            |             `-8.0` |
+
+The starvation penalty is applied when the snake goes too many steps without eating.
+
+The idea is to encourage the snake to actually make progress instead of finding a way to survive indefinitely without reaching the food.
+
+---
+
+# Running the Game
+
+## Interactive Mode
+
+Start the game with:
+
 ```bash
 python main.py
 ```
-*(Alternatively, `python fly_snake_game.py` works as an alias).*
 
-#### Key Controls:
-| Key | Action |
-| :--- | :--- |
-| **`[M]`** | Toggle between **AI Auto-Play** and **Manual Keyboard Control** |
-| **`[F]`** | Toggle **Fast Training Mode** (140 FPS) |
-| **`[O]`** | Toggle Target Proximity Diffusion Heatmap |
-| **`[S]`** | Manually save network weights to `models/dqn_snake.pth` |
-| **`[SPACE]`** | Restart / reset episode |
-| **`[UP / DOWN]`** | Increase / decrease simulation speed |
-| **`[LEFT / RIGHT]`** | Steer snake (when in Manual mode) |
+Alternatively:
+
+```bash
+python fly_snake_game.py
+```
+
+The trained model is loaded automatically from:
+
+```text
+models/dqn_snake.pth
+```
+
+## Controls
+
+| Key            | Action                               |
+| -------------- | ------------------------------------ |
+| `M`            | Toggle between AI and manual control |
+| `F`            | Toggle fast training mode            |
+| `O`            | Toggle food proximity heatmap        |
+| `S`            | Save the current model               |
+| `SPACE`        | Restart the episode                  |
+| `UP / DOWN`    | Change simulation speed              |
+| `LEFT / RIGHT` | Control the snake in manual mode     |
 
 ---
 
-### 2. High-Speed Headless Training
-To train or improve the model without Pygame graphics overhead:
+# Headless Training
+
+Training doesn't need the Pygame renderer, so the project also has a headless training mode.
+
+Run:
+
 ```bash
 python train_headless.py --episodes 300
 ```
-- Runs at **300+ steps per second**.
-- Outputs average score, loss, and epsilon every 25 episodes.
-- Automatically saves new weights to `models/dqn_snake.pth`.
+
+This runs the environment without drawing the game window and is considerably faster than training through the GUI.
+
+The training script reports:
+
+* Episode number
+* Score
+* Loss
+* Epsilon
+
+The model is saved to:
+
+```text
+models/dqn_snake.pth
+```
 
 ---
 
-## Results & Benchmarks
+# Results
 
-| Metric | Previous Hebbian Model | Deep Q-Network (Our Model) |
-| :--- | :--- | :--- |
-| **Average Score** | ~0 - 1 fruits | **12 - 16 fruits** |
-| **High Score** | 3 fruits | **44+ fruits** |
-| **Convergence Time** | Did not converge | **134 seconds (150 episodes)** |
-| **Movement Behavior** | Random spinning, wall crashes | **Direct vectoring, self-body avoidance** |
+The current results compared with the earlier Hebbian approach are:
+
+| Metric        |                    Hebbian Model |                                Double DQN |
+| ------------- | -------------------------------: | ----------------------------------------: |
+| Average Score |                      ~0–1 fruits |                             ~12–16 fruits |
+| High Score    |                         3 fruits |                                44+ fruits |
+| Training      |        Did not reliably converge |                   Learned useful behavior |
+| Movement      | Random spinning and wall crashes | Better navigation and collision avoidance |
+
+The main improvement was not just the higher score.
+
+The DQN agent started showing behavior that looked like it was actually using the information from its state:
+
+* Moving toward food
+* Avoiding nearby obstacles
+* Changing direction when necessary
+* Learning from previous attempts
+
+---
+
+# Conclusion
+
+This project started as an experiment with a biologically-inspired learning approach and eventually moved toward a more traditional reinforcement learning setup.
+
+The fruit fly approach was interesting, but Snake requires decisions where the result of an action might only become obvious several moves later.
+
+Double DQN provided a better way to handle this through:
+
+* Experience replay
+* Discounted future rewards
+* Bellman targets
+* Epsilon-greedy exploration
+* Separate policy and target networks
+
+Another important part of the project was the state representation. Using an ego-centric representation reduced the amount of information the network had to deal with and made similar situations look more consistent from the agent's perspective.
